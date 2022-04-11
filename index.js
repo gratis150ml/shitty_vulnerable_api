@@ -3,13 +3,10 @@ const mongoose = require("mongoose");
 var cors = require("cors");
 const uuid = require("uuid");
 const bcrypt = require("bcrypt");
-const client = require("twilio")(
-  "",
-  ""
-);
+const client = require("twilio")("AC", "1");
 const connect = async () => {
   await mongoose
-    .connect("mongodb://holix:holix@localhost:27017/holixdb")
+    .connect("mongodb://localhost:27017/holix")
     .catch((error) => console.log(error));
 };
 connect();
@@ -32,7 +29,18 @@ const User = new mongoose.Schema(
   { collection: "users" }
 );
 const model = mongoose.model("User", User);
-app.post("/api/register", async (request, response) => {
+const Post = new mongoose.Schema(
+  {
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+  },
+  {
+    timestamps: true,
+  },
+  { collection: "posts" }
+);
+const model2 = mongoose.model("Post", Post);
+app.post("/v1/register", async (request, response) => {
   try {
     const { username, email, password, phone } = request.body;
     const hashed_password = await bcrypt.hash(password, 10);
@@ -45,45 +53,57 @@ app.post("/api/register", async (request, response) => {
     client.verify
       .services("")
       .verifications.create({ to: phone, channel: "sms" });
-    return response
-      .status(200)
-      .json({ status: "account created. now u need to confirm" });
+    return response.status(200).json({ status: "ok", data: user });
   } catch (err) {
     return response.status(400).json({ status: "error", message: err.message });
   }
 });
-app.post("/api/confirm-mobile", async (request, response) => {
-  const { phone, email, code } = request.body;
+app.post("/v1/verify", async (request, response) => {
+  const { phone, code } = request.body;
   client.verify
     .services("")
     .verificationChecks.create({ to: phone, code: code })
     .then(async (verification_check) => {
       if (verification_check.valid === true) {
-        const user = await model.findOne({ phone: phone });
-        user.is_active = true;
-        user.save();
-        return response.status(200).json({ message: "done" });
+        return response.status(200).json({ status: "ok", data: uuid.v4() });
       } else {
-        return response.status(200).json({ message: "wrong code" });
+        return response
+          .status(200)
+          .json({ status: "error", message: "wrong code" });
       }
     });
 });
-app.post("/api/login", async (request, response) => {
+app.post("/v1/login", async (request, response) => {
   const { email, password } = request.body;
   const user = await model.findOne({ email: email });
   const match = await bcrypt.compare(password, user.password);
   if (match) {
-    if (user.is_active === false) {
-      return response.status(200).json({ message: "confirm your account" });
-    } else {
-      return response.status(200).json({ token: uuid.v4() });
-    }
+    client.verify
+      .services("")
+      .verifications.create({ to: user.phone, channel: "sms" });
+    return response
+      .status(200)
+      .json({ status: "ok", data: "now verify your account" });
   }
 });
-app.listen(8080, (er) => {
-  if (er) {
-    console.log(er);
-  } else {
-    console.log("running on port 8080!");
-  }
+app.get("/v1/search", async (request, response) => {
+  const { query } = request.body;
+  const post = model2.find({ title: query });
+  response.status(200).json({ status: "ok", data: post });
 });
+app.get("/v1/posts", async (request, response) => {
+  //
+});
+app.post("/v1/confirm-email", async (request, response) => {
+  //
+});
+app.post("/v1/posts/create", async (request, response) => {
+  //
+});
+app.post("/v1/update-email", async (request, response) => {
+  //
+});
+app.get("/v1/forgot-password", async (request, response) => {
+  //
+});
+app.listen(8080);
